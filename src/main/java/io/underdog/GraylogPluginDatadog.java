@@ -1,6 +1,5 @@
 package io.underdog;
 
-import com.google.common.collect.Maps;
 import com.google.inject.Inject;
 import com.google.inject.assistedinject.Assisted;
 import org.graylog2.plugin.Message;
@@ -25,7 +24,6 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class GraylogPluginDatadog implements MessageOutput {
@@ -35,6 +33,7 @@ public class GraylogPluginDatadog implements MessageOutput {
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private WebTarget eventTarget;
     private String[] tags;
+    private String[] fields;
     private String priority;
     private String alertType;
     private String aggregationKey;
@@ -43,6 +42,7 @@ public class GraylogPluginDatadog implements MessageOutput {
     private static final String CK_DATADOG_API_KEY = "datadog_api_key";
     private static final String CK_DATADOG_APP_KEY = "datadog_app_key";
     private static final String CK_DATADOG_TAGS = "datadog_tags";
+    private static final String CK_MESSAGE_FIELDS = "datadog_fields";
     private static final String CK_DATADOG_PRIORITY = "datadog_priority";
     private static final String CK_DATADOG_ALERT_TYPE = "datadog_alert_type";
     private static final String CK_DATADOG_AGGREGATION_KEY = "datadog_aggregation_KEY";
@@ -52,7 +52,8 @@ public class GraylogPluginDatadog implements MessageOutput {
     public GraylogPluginDatadog(@Assisted Stream stream, @Assisted Configuration configuration) throws MessageOutputConfigurationException {
         this.configuration = configuration;
 
-        tags = configuration.getString(CK_DATADOG_TAGS, "").split(",");
+        tags = getConfigArray(configuration, CK_DATADOG_TAGS);
+        fields = getConfigArray(configuration, CK_MESSAGE_FIELDS);
         priority = configuration.getString(CK_DATADOG_PRIORITY, "normal");
         alertType = configuration.getString(CK_DATADOG_ALERT_TYPE, "info");
         aggregationKey = configuration.getString(CK_DATADOG_AGGREGATION_KEY, "");
@@ -71,6 +72,17 @@ public class GraylogPluginDatadog implements MessageOutput {
         isRunning.set(true);
     }
 
+    private String[] getConfigArray(Configuration configuration, String settingName) {
+        List<String> result = new ArrayList<String>();
+        for (String str : configuration.getString(settingName, "").trim().split(",")) {
+            String val = str.trim();
+            if (!val.isEmpty()) {
+                result.add(val);
+            }
+        }
+        return result.toArray(new String[]{});
+    }
+
     @Override
     public boolean isRunning() {
         return isRunning.get();
@@ -78,23 +90,23 @@ public class GraylogPluginDatadog implements MessageOutput {
 
     public String getMessageText(Message message) {
         final StringBuilder sb = new StringBuilder();
-        sb.append("%%% \n");
+        sb.append("%%%\n");
 
-        final Map<String, Object> filteredFields = Maps.newHashMap(message.getFields());
-        for (Map.Entry<String, Object> entry : filteredFields.entrySet()) {
-            sb.append("**").append(entry.getKey()).append("**: ").append(entry.getValue().toString()).append("\n\n");
+        String[] filteredFields = (fields.length > 0) ? fields :
+                message.getFields().keySet().toArray(new String[]{});
+
+        for (String field : filteredFields) {
+            Object val = message.getField(field);
+            if (val != null) {
+                sb.append("- ").append(field.toUpperCase()).append(" : **").append(val.toString()).append("**\n");
+            }
         }
-
-        sb.append("\n %%%");
+        sb.append("\n%%%");
         return sb.toString();
     }
 
     public String getMessageTitle(Message message) {
         final StringBuilder sb = new StringBuilder();
-        if (message.getField("facility") != null) {
-            sb.append(message.getField("facility")).append(" ");
-        }
-        sb.append("[").append(message.getSource()).append("] ");
         sb.append(message.getMessage());
         return sb.toString();
     }
@@ -189,6 +201,12 @@ public class GraylogPluginDatadog implements MessageOutput {
             configurationRequest.addField(new TextField(
                     CK_DATADOG_TAGS, "Datadog event tags", "",
                     "Comma separated list of tags to add to the event, e.g. 'tag:value,name,another:tag'",
+                    ConfigurationField.Optional.OPTIONAL)
+            );
+
+            configurationRequest.addField(new TextField(
+                    CK_MESSAGE_FIELDS, "Message details fields", "",
+                    "Comma separated list of fields to be included with detailed message",
                     ConfigurationField.Optional.OPTIONAL)
             );
 
