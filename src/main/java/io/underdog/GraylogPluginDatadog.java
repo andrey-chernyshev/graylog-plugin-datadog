@@ -1,12 +1,8 @@
 package io.underdog;
 
-import com.floreysoft.jmte.Engine;
-import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 import com.google.inject.Inject;
 import com.google.inject.assistedinject.Assisted;
-import org.apache.commons.lang3.StringUtils;
-import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
 import org.graylog2.plugin.Message;
 import org.graylog2.plugin.configuration.Configuration;
 import org.graylog2.plugin.configuration.ConfigurationRequest;
@@ -24,11 +20,12 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class GraylogPluginDatadog implements MessageOutput {
@@ -62,10 +59,10 @@ public class GraylogPluginDatadog implements MessageOutput {
 
         try {
             eventUrl = new URI(String.format("%s?api_key=%s&app_key=%s",
-                                             DATADOG_API_URL,
-                                             configuration.getString(CK_DATADOG_API_KEY),
-                                             configuration.getString(CK_DATADOG_APP_KEY)));
-        } catch (URISyntaxException e){
+                    DATADOG_API_URL,
+                    configuration.getString(CK_DATADOG_API_KEY),
+                    configuration.getString(CK_DATADOG_APP_KEY)));
+        } catch (URISyntaxException e) {
             throw new MessageOutputConfigurationException("Syntax error in datadog event URL");
         }
 
@@ -94,7 +91,6 @@ public class GraylogPluginDatadog implements MessageOutput {
 
     public String getMessageTitle(Message message) {
         final StringBuilder sb = new StringBuilder();
-        sb.append("graylog: ");
         if (message.getField("facility") != null) {
             sb.append(message.getField("facility")).append(" ");
         }
@@ -108,13 +104,23 @@ public class GraylogPluginDatadog implements MessageOutput {
         HashMap<String, Object> payload = new HashMap<>();
         payload.put("title", getMessageTitle(message));
         payload.put("text", getMessageText(message));
-        payload.put("tags", tags);
+        if (tags.length > 0) {
+            List<String> tagValues = new ArrayList<String>();
+            for (String tag : tags) {
+                Object tagValue = message.getField(tag);
+                if (tagValue != null) {
+                    tagValues.add(tag + ":" + tagValue);
+                } else {
+                    tagValues.add(tag);
+                }
+            }
+            payload.put("tags", tagValues);
+        }
         payload.put("source_type_name", "graylog");
-        payload.put("priority", priority);
-        payload.put("alert_type", alertType);
-
-        if (aggregationKey != "") {
-            payload.put("aggregation_key", aggregationKey);
+        if (!priority.isEmpty()) payload.put("priority", priority);
+        if (!alertType.isEmpty()) payload.put("alert_type", alertType);
+        if (!aggregationKey.isEmpty()) {
+            payload.put("aggregation_key", message.getField(aggregationKey));
         } else {
             final StringBuilder sb = new StringBuilder();
             sb.append(message.getSource());
@@ -125,8 +131,8 @@ public class GraylogPluginDatadog implements MessageOutput {
         }
 
         Response response = eventTarget
-            .request(MediaType.APPLICATION_JSON)
-            .post(Entity.entity(payload, MediaType.APPLICATION_JSON), Response.class);
+                .request(MediaType.APPLICATION_JSON)
+                .post(Entity.entity(payload, MediaType.APPLICATION_JSON), Response.class);
 
         String result = String.format(
                 "POST [%s] to [%s], status code [%d], headers: %s, returned data: %s",
@@ -169,39 +175,39 @@ public class GraylogPluginDatadog implements MessageOutput {
             final ConfigurationRequest configurationRequest = new ConfigurationRequest();
 
             configurationRequest.addField(new TextField(
-                            CK_DATADOG_API_KEY, "Datadog API key", "",
-                            "API key for Datadog",
-                            ConfigurationField.Optional.NOT_OPTIONAL)
+                    CK_DATADOG_API_KEY, "Datadog API key", "",
+                    "API key for Datadog",
+                    ConfigurationField.Optional.NOT_OPTIONAL)
             );
 
             configurationRequest.addField(new TextField(
-                            CK_DATADOG_APP_KEY, "Datadog APP key", "",
-                            "APP key for Datadog",
-                            ConfigurationField.Optional.NOT_OPTIONAL)
+                    CK_DATADOG_APP_KEY, "Datadog APP key", "",
+                    "APP key for Datadog",
+                    ConfigurationField.Optional.NOT_OPTIONAL)
             );
 
             configurationRequest.addField(new TextField(
-                            CK_DATADOG_TAGS, "Datadog event tags", "",
-                            "Comma separated list of tags to add to the event, e.g. 'tag:value,name,another:tag'",
-                            ConfigurationField.Optional.OPTIONAL)
+                    CK_DATADOG_TAGS, "Datadog event tags", "",
+                    "Comma separated list of tags to add to the event, e.g. 'tag:value,name,another:tag'",
+                    ConfigurationField.Optional.OPTIONAL)
             );
 
             configurationRequest.addField(new TextField(
-                            CK_DATADOG_PRIORITY, "Datadog event priority", "",
-                            "Datadog event priority, one of ('normal', or 'low') [default: 'normal']",
-                            ConfigurationField.Optional.OPTIONAL)
+                    CK_DATADOG_PRIORITY, "Datadog event priority", "",
+                    "Datadog event priority, one of ('normal', or 'low') [default: 'normal']",
+                    ConfigurationField.Optional.OPTIONAL)
             );
 
             configurationRequest.addField(new TextField(
-                            CK_DATADOG_ALERT_TYPE, "Datadog event alert type", "",
-                            "Datadog event alert type, one of ('error', 'warning', 'success', or 'info') [default: 'info']",
-                            ConfigurationField.Optional.OPTIONAL)
+                    CK_DATADOG_ALERT_TYPE, "Datadog event alert type", "",
+                    "Datadog event alert type, one of ('error', 'warning', 'success', or 'info') [default: 'info']",
+                    ConfigurationField.Optional.OPTIONAL)
             );
 
             configurationRequest.addField(new TextField(
-                            CK_DATADOG_AGGREGATION_KEY, "Datadog event aggregation key", "",
-                            "Datadog event custom aggregation key [default: '[source]_[facility]']",
-                            ConfigurationField.Optional.OPTIONAL)
+                    CK_DATADOG_AGGREGATION_KEY, "Datadog event aggregation key", "",
+                    "Datadog event custom aggregation key [default: '[source]_[facility]']",
+                    ConfigurationField.Optional.OPTIONAL)
             );
 
             return configurationRequest;
